@@ -7,6 +7,7 @@ url = "https://loinaf.fr/loinafloc"
 license.file = "LICENSE"
 author = "ALTHAUS Tom"
 author_email = "berstheim67@gmail.com"
+permission.fine_location = true
 
 [tool.briefcase.app.loinafloc]
 formal_name = "Global orientation"
@@ -183,7 +184,7 @@ build_gradle_dependencies = [
     # Needed for DetailedList
     # "androidx.swiperefreshlayout:swiperefreshlayout:1.1.0",
     # Needed for MapView
-    # "org.osmdroid:osmdroid-android:6.1.20",
+    "org.osmdroid:osmdroid-android:6.1.20",
 ]
 
 # Web deployments
