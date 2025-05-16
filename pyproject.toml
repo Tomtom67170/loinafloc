@@ -8,7 +8,6 @@ license.file = "LICENSE"
 author = "ALTHAUS Tom"
 author_email = "berstheim67@gmail.com"
 permission.fine_location = true
-permission.background_location = true
 
 [tool.briefcase.app.loinafloc]
 formal_name = "Global orientation"
