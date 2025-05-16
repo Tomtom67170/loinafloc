@@ -58,6 +58,7 @@ class Globalorientation(App):
         start_text = Label("Démarrage...", style=Pack(font_size=24, flex=1, text_align="center", margin_top=30))
         progressbar = ProgressBar(style=Pack(margin=(5, 30), flex=1), max=100, running=True)
         self.position_pin = MapPin(location=[0, 0], title="Vous êtes ici")
+        self.on_focus = False
         self.main_box.add(start_text, progressbar)
         self.loc_found = False
         self.location.on_change = self.init_loc
@@ -102,13 +103,14 @@ class Globalorientation(App):
             location = kwargs.get("location", None)
             altitude = kwargs.get("altitude", None)
             self.position_pin.location = location
+            if self.on_focus: self.map_view.location = location
             if not self.position_pin in self.map_view.pins:
                 print("Pins mis à jour")
                 self.map_view.pins.add(self.position_pin)
                 if self.location_state == False:
                     await asyncio.sleep(2)
             for i in range(len(self.balises)):
-                self.map_view.pins.add(MapPin(location=self.balises[i][0], title="Balises n°"+str(i+1), subtitle=self.balises[i][1]))
+                self.map_view.pins.add(MapPin(location=self.balises[i][0], title="Balise n°"+str(i+1), subtitle=self.balises[i][1]))
             self.last_update = time.time()
             self.map_view.refresh()
             self.location.start_tracking()
@@ -190,16 +192,29 @@ class Globalorientation(App):
         self.main_box.add(error_text, loading, self.map_view, self.act_box)
         await self.main(False)
 
+    def update_focus(self, widgets:Button):
+        if self.on_focus:
+            self.on_focus = False
+            del widgets.style.background_color
+        else:
+            self.on_focus = True
+            widgets.style.update(background_color="#00ff00")
+            self.map_view.zoom = 18
+            self.map_view.location = self.position_pin.location
+
     def init_act(self):
         self.act_box = Box(style=Pack(direction=COLUMN, height=100))
         self.balise_box = Box(style=Pack(direction=ROW, flex=1))
-        self.add_balise_button = Button(text="+", style=Pack(flex=1), on_press=self.add_balise)
-        self.edit_balise_button = Button(text="crayon", style=Pack(flex=1))
+        self.add_balise_button = Button(text="+", style=Pack(flex=2), on_press=self.add_balise)
+        self.center_button = Button(text="c", style=Pack(flex=1), on_press=self.update_focus)
+        if self.on_focus: self.center_button.style.update(background_color="#00ff00")
+        else: del self.center_button.style.background_color
+        self.edit_balise_button = Button(text="crayon", style=Pack(flex=2))
         self.running_box = Box(style=Pack(direction=ROW, flex=1))
         self.load_button = Button(text="load", style=Pack(flex=1))
         self.run_button = Button(text="run", style=Pack(flex=2))
         self.save_button = Button(text="save", style=Pack(flex=1))
-        self.balise_box.add(self.add_balise_button, self.edit_balise_button)
+        self.balise_box.add(self.add_balise_button, self.center_button, self.edit_balise_button)
         self.running_box.add(self.load_button, self.run_button, self.save_button)
         self.act_box.add(self.balise_box, self.running_box)
 
