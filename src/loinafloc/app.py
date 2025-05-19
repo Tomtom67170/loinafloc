@@ -13,6 +13,7 @@ from toga.window import MainWindow
 from toga.window import Window
 from toga.widgets.progressbar import ProgressBar
 from toga.widgets.textinput import TextInput
+from toga.widgets.table import Table
 from toga.app import App
 from toga.widgets.mapview import *
 from toga.dialogs import InfoDialog, ErrorDialog, QuestionDialog
@@ -89,8 +90,7 @@ class Globalorientation(App):
 
     async def main(self, start=True):
         print("Initialisation check_pos")
-        if start:
-            asyncio.create_task(self.check_pos())
+        self.check_pos_task = asyncio.create_task(self.check_pos())
         print("main démarré")
         self.map_view.refresh()
         if self.location.has_permission:
@@ -153,12 +153,17 @@ class Globalorientation(App):
         self.location_state = True
         await self.main()
 
-    def add_balise(self, widgets):
+    async def add_balise(self, widgets): 
         def update_pin(widgets):
             self.balise_location_pin.subtitle = self.tag_name.value
 
+        if len(self.balises) >= 1000:
+            await self.main_window.dialog(ErrorDialog("Limite du nombre de balises atteintes", "Votre course contient trop de balises! Veuillez en supprimer puis réessayer!"))
+            return
+
         self.clear()
         self.location.stop_tracking()
+        self.check_pos_task.cancel()
         self.localisation = self.map_view.location
         self.zoom = self.map_view.zoom + 1 if self.map_view != 20 else 20
         self.add_balise_subbox = Box(style=Pack(direction=COLUMN, flex=1))
@@ -178,6 +183,52 @@ class Globalorientation(App):
         balise_location_map.pins.add(self.balise_location_pin)
         self.main_box.add(self.add_balise_subbox, balise_location_map)
 
+    def edit_balises(self, widgtets):
+        self.clear()
+        self.location.stop_tracking()
+        self.check_pos_task.cancel()
+        table_list = []
+        self.selected_balise = None
+        for x in self.balises:
+            table_list.append([x[1], str(x[0])])
+        print(table_list)
+        self.balise_table = Table(["Nom de la balise", "Coordonnées"], data=table_list, style=Pack(flex=1))
+        self.edit_box = Box(style=Pack(direction=COLUMN, height=100))
+        self.manage_box = Box(style=Pack(direction=ROW, flex=1))
+        self.rename_button = Button("edit", style=Pack(flex=2), on_press=self.rename_balise)
+        self.del_button = Button("del", style=Pack(flex=1, background_color="#ff0000", color="#000000"))
+        self.move_button = Button("move", style=Pack(flex=2))
+        self.quit_button = Button("Confirmer", style=Pack(flex=1), on_press=self.quit_editing)
+        self.manage_box.add(self.rename_button, self.del_button, self.move_button)
+        self.edit_box.add(self.manage_box, self.quit_button)
+        self.main_box.add(self.balise_table, self.edit_box)
+
+    def rename_balise(self, widgets):
+        selected_balise = self.balise_table.selection
+        if selected_balise == None:
+            return
+        self.clear()
+        title_rename = Label("Renommer la\nbalise", style=Pack(text_align=CENTER, alignment=CENTER, font_size=26, margin=(20, 0)))
+        self.name_entry = TextInput(style=Pack(margin=(10, 30)), placeholder="Nouveau nom de balise", value=selected_balise.nom_de_la_balise)
+        rename_button = Button("Renommer", style=Pack(margin=(0)), on_press=)
+
+    def save_new_name(self, widgets):
+        
+
+    async def quit_editing(self, widgets):
+        self.location_state = False
+        self.last_update = self.last_update - 40
+        self.clear()
+        self.reset_map_view()
+        error_text = Label(text="Aucun signal GPS", style=Pack(font_size=10, color="#ffffff", text_align="center", background_color="#ff0000"))
+        loading = ProgressBar(style=Pack(flex=1), max=None, running=True)
+        self.init_act()
+        self.main_box.add(error_text, loading, self.map_view, self.act_box)
+        await self.main()
+
+    def update_selected_balise(self, widgets):
+        self.selected_balise
+
     async def save_balise(self, widgets):
         requests = await self.main_window.dialog(QuestionDialog("Ajouter cette balise", "Voulez-vous ajouter cette balise à cette emplacement"))
         if requests:
@@ -190,7 +241,7 @@ class Globalorientation(App):
         loading = ProgressBar(style=Pack(flex=1), max=None, running=True)
         self.init_act()
         self.main_box.add(error_text, loading, self.map_view, self.act_box)
-        await self.main(False)
+        await self.main()
 
     def update_focus(self, widgets:Button):
         if self.on_focus:
@@ -209,7 +260,7 @@ class Globalorientation(App):
         self.center_button = Button(text="c", style=Pack(flex=1), on_press=self.update_focus)
         if self.on_focus: self.center_button.style.update(background_color="#00ff00")
         else: del self.center_button.style.background_color
-        self.edit_balise_button = Button(text="crayon", style=Pack(flex=2))
+        self.edit_balise_button = Button(text="crayon", style=Pack(flex=2), on_press=self.edit_balises)
         self.running_box = Box(style=Pack(direction=ROW, flex=1))
         self.load_button = Button(text="load", style=Pack(flex=1))
         self.run_button = Button(text="run", style=Pack(flex=2))
