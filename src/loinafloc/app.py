@@ -2,7 +2,7 @@
 Cette application vous permet de créer vos courses d'orientations sur une carte du monde
 """
 
-import toga, sys, asyncio, time
+import toga, sys, asyncio, time, math
 from toga import platform
 from toga.style import Pack
 from toga.style.pack import COLUMN, ROW, CENTER
@@ -204,16 +204,32 @@ class Globalorientation(App):
         self.main_box.add(self.balise_table, self.edit_box)
 
     def rename_balise(self, widgets):
-        selected_balise = self.balise_table.selection
-        if selected_balise == None:
+        self.selected_balise = self.balise_table.selection
+        if self.selected_balise == None:
             return
         self.clear()
         title_rename = Label("Renommer la\nbalise", style=Pack(text_align=CENTER, alignment=CENTER, font_size=26, margin=(20, 0)))
-        self.name_entry = TextInput(style=Pack(margin=(10, 30)), placeholder="Nouveau nom de balise", value=selected_balise.nom_de_la_balise)
-        rename_button = Button("Renommer", style=Pack(margin=(0)), on_press=)
+        self.name_entry = TextInput(style=Pack(margin=(10, 30)), placeholder="Nouveau nom de balise", value=self.selected_balise.nom_de_la_balise)
+        rename_button = Button("Renommer", style=Pack(margin=(0)), on_press=self.save_new_name)
+        self.main_box.add(title_rename, self.name_entry, rename_button)
 
-    def save_new_name(self, widgets):
-        
+    async def save_new_name(self, widgets):
+        #Il faut retrouver l'élément...
+        print(self.selected_balise.nom_de_la_balise, self.selected_balise.coordonnées)
+        for balise in self.balises:
+            print(type(balise[0]), type(self.selected_balise.coordonnées), math.isclose(balise[0], self.selected_balise.coordonnées, abs_tol=1e-6))
+            print(balise[1], self.selected_balise.nom_de_la_balise, balise[1] == self.selected_balise.nom_de_la_balise)
+            if (balise[0] == self.selected_balise.coordonnées and balise[1] == self.selected_balise.nom_de_la_balise):
+                balise[0] = self.name_entry.value
+        self.location_state = False
+        self.last_update = self.last_update - 40
+        self.clear()
+        self.reset_map_view()
+        error_text = Label(text="Aucun signal GPS", style=Pack(font_size=10, color="#ffffff", text_align="center", background_color="#ff0000"))
+        loading = ProgressBar(style=Pack(flex=1), max=None, running=True)
+        self.init_act()
+        self.main_box.add(error_text, loading, self.map_view, self.act_box)
+        await self.main()
 
     async def quit_editing(self, widgets):
         self.location_state = False
