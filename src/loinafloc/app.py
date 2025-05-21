@@ -29,6 +29,8 @@ class Globalorientation(App):
         zoom = self.map_view.zoom
         self.map_view = MapView(location=location, zoom=zoom, style=Pack(flex=1))
         self.map_view.pins.add(self.position_pin)
+        for i in range(len(self.balises)):
+            self.map_view.pins.add(MapPin(location=self.balises[i][0], title="Balise n°"+str(i+1), subtitle=self.balises[i][1]))
 
     def startup(self):
         """Construct and show the Toga application.
@@ -196,12 +198,29 @@ class Globalorientation(App):
         self.edit_box = Box(style=Pack(direction=COLUMN, height=100))
         self.manage_box = Box(style=Pack(direction=ROW, flex=1))
         self.rename_button = Button("edit", style=Pack(flex=2), on_press=self.rename_balise)
-        self.del_button = Button("del", style=Pack(flex=1, background_color="#ff0000", color="#000000"))
+        self.del_button = Button("del", style=Pack(flex=1, background_color="#ff0000", color="#000000"), on_press=self.del_balise)
         self.move_button = Button("move", style=Pack(flex=2))
         self.quit_button = Button("Confirmer", style=Pack(flex=1), on_press=self.quit_editing)
         self.manage_box.add(self.rename_button, self.del_button, self.move_button)
         self.edit_box.add(self.manage_box, self.quit_button)
         self.main_box.add(self.balise_table, self.edit_box)
+
+    async def del_balise(self, widgets):
+        question = await self.main_window.dialog(QuestionDialog("Supprimer la balise", "Voulez vous supprimer la balise seléctionnée?"))
+        if question:
+            self.selected_balise = self.balise_table.selection
+            for i in range(len(self.balises)):
+                if (str(self.balises[i][0]) == self.selected_balise.coordonnées and self.balises[i][1] == self.selected_balise.nom_de_la_balise):
+                    del self.balises[i]
+            self.location_state = False
+            self.last_update = self.last_update - 40
+            self.clear()
+            self.reset_map_view()
+            error_text = Label(text="Aucun signal GPS", style=Pack(font_size=10, color="#ffffff", text_align="center", background_color="#ff0000"))
+            loading = ProgressBar(style=Pack(flex=1), max=None, running=True)
+            self.init_act()
+            self.main_box.add(error_text, loading, self.map_view, self.act_box)
+            await self.main()
 
     def rename_balise(self, widgets):
         self.selected_balise = self.balise_table.selection
@@ -212,15 +231,13 @@ class Globalorientation(App):
         self.name_entry = TextInput(style=Pack(margin=(10, 30)), placeholder="Nouveau nom de balise", value=self.selected_balise.nom_de_la_balise)
         rename_button = Button("Renommer", style=Pack(margin=(0)), on_press=self.save_new_name)
         self.main_box.add(title_rename, self.name_entry, rename_button)
+        self.name_entry.focus()
 
     async def save_new_name(self, widgets):
         #Il faut retrouver l'élément...
-        print(self.selected_balise.nom_de_la_balise, self.selected_balise.coordonnées)
         for balise in self.balises:
-            print(type(balise[0]), type(self.selected_balise.coordonnées), math.isclose(balise[0], self.selected_balise.coordonnées, abs_tol=1e-6))
-            print(balise[1], self.selected_balise.nom_de_la_balise, balise[1] == self.selected_balise.nom_de_la_balise)
-            if (balise[0] == self.selected_balise.coordonnées and balise[1] == self.selected_balise.nom_de_la_balise):
-                balise[0] = self.name_entry.value
+            if (str(balise[0]) == self.selected_balise.coordonnées and balise[1] == self.selected_balise.nom_de_la_balise):
+                balise[1] = self.name_entry.value
         self.location_state = False
         self.last_update = self.last_update - 40
         self.clear()
