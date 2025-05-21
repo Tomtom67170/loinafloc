@@ -2,7 +2,7 @@
 Cette application vous permet de créer vos courses d'orientations sur une carte du monde
 """
 
-import toga, sys, asyncio, time, math
+import toga, sys, asyncio, time, json
 from toga import platform
 from toga.style import Pack
 from toga.style.pack import COLUMN, ROW, CENTER
@@ -18,8 +18,54 @@ from toga.app import App
 from toga.widgets.mapview import *
 from toga.dialogs import InfoDialog, ErrorDialog, QuestionDialog
 from toga.platform import current_platform
+from android.content import Intent
+from java import jarray, jbyte
+from android.net import Uri
+from java.io import OutputStream
+from java.nio.charset import StandardCharsets
 
 class Globalorientation(App):
+
+    async def android_write(self, data_to_save: bytes, suggested_filename="Balises.json"):
+        file_create = Intent(Intent.ACTION_CREATE_DOCUMENT)
+        file_create.addCategory(Intent.CATEGORY_OPENABLE)
+        file_create.setType("*/*")
+        file_create.putExtra(Intent.EXTRA_TITLE, suggested_filename)
+
+        # Affiche la boîte de dialogue de sélection
+        result = await self._impl.intent_result(Intent.createChooser(file_create, "Exporter mes balises"))
+
+        uri = result['resultData'].getData()
+        context = self._impl.native
+        stream = context.getContentResolver().openOutputStream(uri)
+
+        # Écrit les données dans le flux
+        stream.write(data_to_save)
+        stream.flush()
+        stream.close()
+
+    async def android_read(self, widget=None) -> bytes:
+        fileChose = Intent(Intent.ACTION_GET_CONTENT)
+        fileChose.addCategory(Intent.CATEGORY_OPENABLE)
+        fileChose.setType("*/*")
+
+        # Assuming `app` is your toga.App object
+        results = await self._impl.intent_result(Intent.createChooser(fileChose, "Sélectionner un questionnaire"))  
+        data = results['resultData'].getData()
+        context = self._impl.native
+        stream = context.getContentResolver().openInputStream(data)
+
+        def read_stream(stream):
+            block = jarray(jbyte)(1024 * 1024)
+            blocks = []
+            while True:
+                bytes_read = stream.read(block)
+                if bytes_read == -1:
+                    return b"".join(blocks)
+                else:
+                    blocks.append(bytes(block)[:bytes_read])
+        return read_stream(stream)
+
     def clear(self):
         self.main_box = Box(style=Pack(direction=COLUMN))
         self.main_window.content = self.main_box
@@ -90,6 +136,10 @@ class Globalorientation(App):
             self.last_update = time.time() - 120
             self.location_state = False
             await self.main()
+
+    async def save_balises(self, widgets):
+        to_write = json.dumps(self.balises, indent=4).encode("utf-8")
+        await self.android_write(to_write)
 
     async def main(self, start=True):
         print("Initialisation check_pos")
@@ -332,7 +382,7 @@ class Globalorientation(App):
         self.running_box = Box(style=Pack(direction=ROW, flex=1))
         self.load_button = Button(text="load", style=Pack(flex=1))
         self.run_button = Button(text="run", style=Pack(flex=2))
-        self.save_button = Button(text="save", style=Pack(flex=1))
+        self.save_button = Button(text="save", style=Pack(flex=1), on_press=self.save_balises)
         self.balise_box.add(self.add_balise_button, self.center_button, self.edit_balise_button)
         self.running_box.add(self.load_button, self.run_button, self.save_button)
         self.act_box.add(self.balise_box, self.running_box)
