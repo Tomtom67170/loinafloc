@@ -68,6 +68,7 @@ class Globalorientation(App):
         self.location.start_tracking()
         self.start_time = time.time() + 1
         self.balises = []
+        self.move_state = False
         progressbar.value = 10
         await asyncio.sleep(3)
         progressbar.value = 45
@@ -194,20 +195,52 @@ class Globalorientation(App):
         for x in self.balises:
             table_list.append([x[1], str(x[0])])
         print(table_list)
-        self.balise_table = Table(["Nom de la balise", "Coordonnées"], data=table_list, style=Pack(flex=1))
+        self.balise_table = Table(["Nom de la balise", "Coordonnées"], data=table_list, style=Pack(flex=1), on_select=self.move_on_select)
         self.edit_box = Box(style=Pack(direction=COLUMN, height=100))
         self.manage_box = Box(style=Pack(direction=ROW, flex=1))
         self.rename_button = Button("edit", style=Pack(flex=2), on_press=self.rename_balise)
         self.del_button = Button("del", style=Pack(flex=1, background_color="#ff0000", color="#000000"), on_press=self.del_balise)
-        self.move_button = Button("move", style=Pack(flex=2))
+        self.move_button = Button("move", style=Pack(flex=2), on_press=self.move_balise)
         self.quit_button = Button("Confirmer", style=Pack(flex=1), on_press=self.quit_editing)
         self.manage_box.add(self.rename_button, self.del_button, self.move_button)
         self.edit_box.add(self.manage_box, self.quit_button)
         self.main_box.add(self.balise_table, self.edit_box)
 
+    def move_balise(self, widgets:Button):
+        if self.move_state:
+            self.move_state = False
+            selected_balise = self.balise_table.selection
+            del widgets.style.background_color
+            for i in range(len(self.balises)):
+                if (str(self.balises[i][0]) == selected_balise.coordonnées and self.balises[i][1] == selected_balise.nom_de_la_balise):
+                    self.balises[i], self.balises[self.selected_balise] = self.balises[self.selected_balise], self.balises[i]
+            self.edit_balises(widgtets=None)
+
+        else: #Aucune balise n'est seléctionné pour le moment
+            self.selected_balise = self.balise_table.selection
+            if self.selected_balise == None:
+                return
+            self.move_state = True
+            for i in range(len(self.balises)):
+                if (str(self.balises[i][0]) == self.selected_balise.coordonnées and self.balises[i][1] == self.selected_balise.nom_de_la_balise):
+                    self.selected_balise = i
+            print(self.selected_balise)
+            widgets.style.update(background_color="#00ff00")
+
+    def move_on_select(self, widgets):
+        if self.move_state:
+            self.move_state = False
+            selected_balise = self.balise_table.selection
+            del widgets.style.background_color
+            for i in range(len(self.balises)):
+                if (str(self.balises[i][0]) == selected_balise.coordonnées and self.balises[i][1] == selected_balise.nom_de_la_balise):
+                    self.balises[i], self.balises[self.selected_balise] = self.balises[self.selected_balise], self.balises[i]
+            self.edit_balises(widgtets=None)
+
     async def del_balise(self, widgets):
         question = await self.main_window.dialog(QuestionDialog("Supprimer la balise", "Voulez vous supprimer la balise seléctionnée?"))
         if question:
+            self.move_state = False
             self.selected_balise = self.balise_table.selection
             for i in range(len(self.balises)):
                 if (str(self.balises[i][0]) == self.selected_balise.coordonnées and self.balises[i][1] == self.selected_balise.nom_de_la_balise):
@@ -224,6 +257,7 @@ class Globalorientation(App):
 
     def rename_balise(self, widgets):
         self.selected_balise = self.balise_table.selection
+        self.move_state = False
         if self.selected_balise == None:
             return
         self.clear()
@@ -250,6 +284,7 @@ class Globalorientation(App):
 
     async def quit_editing(self, widgets):
         self.location_state = False
+        self.move_state = False
         self.last_update = self.last_update - 40
         self.clear()
         self.reset_map_view()
