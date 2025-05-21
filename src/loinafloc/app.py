@@ -138,8 +138,60 @@ class Globalorientation(App):
             await self.main()
 
     async def save_balises(self, widgets):
-        to_write = json.dumps(self.balises, indent=4).encode("utf-8")
-        await self.android_write(to_write)
+        try:
+            to_write = json.dumps(self.balises, indent=4).encode("utf-8")
+            await self.android_write(to_write)
+        except Exception as E:
+            await self.main_window.dialog(ErrorDialog("Erreur lors de l'export", "Impossible d'exporter le fichier pour la raison:\n"+str(E)))
+        else:
+            await self.main_window.dialog(InfoDialog("Balises exportés", "Vos balises ont été exportés"))
+
+    async def load_balises(self, widgets):
+        try:
+            file = await self.android_read()
+            self.balises = json.loads(file.decode("utf-8"))
+        except Exception as E:
+            await self.main_window.dialog(ErrorDialog("Impossible d'ouvrir ce fichier", "Vos balises n'ont pu être importés pour la raison:\n"+str(E)))
+        else:
+            try:
+                self.location_state = False
+                self.move_state = False
+                self.last_update = self.last_update - 40
+                self.clear()
+                self.reset_map_view()
+                error_text = Label(text="Aucun signal GPS", style=Pack(font_size=10, color="#ffffff", text_align="center", background_color="#ff0000"))
+                loading = ProgressBar(style=Pack(flex=1), max=None, running=True)
+                self.init_act()
+                self.main_box.add(error_text, loading, self.map_view, self.act_box)
+
+                #on détermine une localisation d'apparition
+                x = 0
+                y = 0
+                for x_bal in self.balises:
+                    x += x_bal[0][0]
+                for y_bal in self.balises:
+                    y += y_bal[0][1]
+
+                y /= len(self.balises)
+                x /= len(self.balises)
+
+                self.map_view.location = [x, y]
+                self.map_view.zoom = 14
+
+                await self.main()
+            except Exception as E:
+                await self.main_window.dialog(ErrorDialog("Impossible d'importer les balises", "Vos balises n'ont pu être importés pour la raison:\n"+str(E)))
+                self.balises = []
+                self.location_state = False
+                self.move_state = False
+                self.last_update = self.last_update - 40
+                self.clear()
+                self.reset_map_view()
+                error_text = Label(text="Aucun signal GPS", style=Pack(font_size=10, color="#ffffff", text_align="center", background_color="#ff0000"))
+                loading = ProgressBar(style=Pack(flex=1), max=None, running=True)
+                self.init_act()
+                self.main_box.add(error_text, loading, self.map_view, self.act_box)
+                await self.main()
 
     async def main(self, start=True):
         print("Initialisation check_pos")
@@ -380,7 +432,7 @@ class Globalorientation(App):
         else: del self.center_button.style.background_color
         self.edit_balise_button = Button(text="crayon", style=Pack(flex=2), on_press=self.edit_balises)
         self.running_box = Box(style=Pack(direction=ROW, flex=1))
-        self.load_button = Button(text="load", style=Pack(flex=1))
+        self.load_button = Button(text="load", style=Pack(flex=1), on_press=self.load_balises)
         self.run_button = Button(text="run", style=Pack(flex=2))
         self.save_button = Button(text="save", style=Pack(flex=1), on_press=self.save_balises)
         self.balise_box.add(self.add_balise_button, self.center_button, self.edit_balise_button)
