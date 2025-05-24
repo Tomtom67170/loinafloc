@@ -205,29 +205,133 @@ class Globalorientation(App):
             self.location.start_tracking()
 
     async def run(self, widgets):
-        self.location.stop_tracking()
+
+        class location_box(Box):
+            def __init__(self, id = None, style = None, children = None, location_pin:MapPin=None, balise:list=None, pin_allowed=False):
+                super().__init__(id, style, children)
+                self.balises = MapPin(balise[0], title="Prochaine balise", subtitle=balise[1])
+                self.map_view = MapView(location=self.balises.location, zoom=16, style=Pack(flex=1))
+                self.map_view.pins.add(self.balises)
+                act_box = Box(style=Pack(height=50, direction=ROW, margin_bottom=50))
+                disable_pin = Button("pin", style=Pack(flex=1), on_press=self.change_pin_location_state)
+                self.focus_button = Button("c", style=Pack(flex=1), on_press=self.focus_location)
+                self.location_pin = location_pin
+                if not(pin_allowed):
+                    disable_pin.enabled = False
+                    self.focus_button.enabled = False
+                    self.location_pin_state = False
+                else:
+                    self.map_view.pins.add(location_pin)
+                    self.location_pin_state = True
+                act_box.add(disable_pin, self.focus_button)
+                self.add(self.map_view, act_box)
+
+            def change_pin_location_state(self, widgets):
+                if self.location_pin_state:
+                    self.map_view.pins.remove(self.location_pin)
+                    self.location_pin_state = False
+                    self.focus_button.enabled = False
+                else:
+                    self.map_view.pins.add(self.location_pin)
+                    self.map_view.refresh()
+                    self.location_pin_state = True
+                    self.focus_button.enabled = True
+
+            def focus_location(self, widgets):
+                self.map_view.location = self.location_pin.location
+                self.map_view.zoom = 16
+
         if len(self.balises) == 0:
             await self.main_window.dialog(InfoDialog("Course incomplète", "Vous devez ajouter au moins une balise à votre course d'orientation"))
             return
         response = await self.main_window.dialog(QuestionDialog("Prêt?", "Voulez-vous commencer la course d'orientation dés maintenant?"))
         if not(response):
             return
+        self.check_pos_task.cancel()
+        self.location.stop_tracking()
         self.allow_position = await self.main_window.dialog(QuestionDialog("Afficher localisation", "Souhaitez-vous autoriser l'affichage de votre position durant la course? Si oui, vous pourrez l'afficher/masquer à n'importe quel moment de la course"))
         self.main_box.clear()
-        self.reset_map_view(show_pins=False)
-
-        self.main_container = OptionContainer()
-        self.location_box = Box(style=Pack(direction=COLUMN))
+        self.main_container = OptionContainer(style=Pack(flex=1))
+        self.location_box = location_box(style=Pack(direction=COLUMN, flex=1), location_pin=self.position_pin, balise=self.balises[0], pin_allowed=self.allow_position)
+        self.main_container.content.append("Carte", self.location_box)
         progressbar_header = Box(style=Pack(direction=COLUMN, align_items=CENTER, text_align=CENTER))
-        progress_label = Label(style=Pack(font_size=10), text="Balise 0 sur "+str(len(self.balises)))
+        progress_label = Label(style=Pack(font_size=10), text="Balises réalisés: 0 sur "+str(len(self.balises)))
         self.progressbar_status = ProgressBar(max=len(self.balises), value=0, style=Pack(margin=(0)))
         progressbar_header.add(progress_label, self.progressbar_status)
         self.main_box.add(progressbar_header, self.main_container)
+        self.location.on_change = self.update_pos_running
+        self.location.start_tracking()
+        self.check_pos_task = asyncio.create_task(self.check_pos_running())
+
+    async def check_pos_running(self):
+
+        class location_box(Box):
+            def __init__(self, style, location_pin:MapPin, balise:MapPin, pin_allowed, lost, map_view_state:list, **kwargs):
+                super().__init__(style, **kwargs)
+                self.balises = balise
+                error_text = Label(text="Aucun signal GPS", style=Pack(font_size=10, color="#ffffff", text_align="center", background_color="#ff0000"))
+                loading = ProgressBar(style=Pack(flex=1), max=None, running=True)
+                self.map_view = MapView(location=map_view_state[0], zoom=map_view_state[1], style=Pack(flex=1))
+                self.map_view.pins.add(balise)
+                act_box = Box(style=Pack(height=50, direction=ROW))
+                disable_pin = Button("pin", style=Pack(flex=1), on_press=self.change_pin_location_state)
+                focus_button = Button("c", style=Pack(flex=1), on_press=self.focus_location)
+                self.location_pin = location_pin
+                if not(pin_allowed):
+                    disable_pin.enabled = False
+                    focus_button.enabled = False
+                    self.location_pin_state = False
+                else:
+                    self.map_view.pins.add(location_pin)
+                    self.location_pin_state = True
+                act_box.add(disable_pin, focus_button)
+                if lost:
+                    self.add(error_text, loading)
+                self.add(self.map_view, act_box)
+
+            def change_pin_location_state(self, widgets):
+                if self.location_pin_state:
+                    self.map_view.pins.remove(self.location_pin)
+                    self.location_pin_state = False
+                else:
+                    self.map_view.pins.add(self.location_pin)
+                    self.location_pin_state = True
+
+            def focus_location(self, widgets):
+                self.map_view.location = self.location_pin.location
+                self.map_view.zoom = 16
         
+        while True:
+            if time.time() - self.last_update >= 30:
+                if self.location_state: #devient obsolète
+                    self.location.stop_tracking()
+                    localisation = self.location_box.map_view.location
+                    zoom = self.location_box.map_view.zoom
+                    self.location_box = location_box(Pack(direction=COLUMN), self.position_pin, self.balises[0], self.allow_position, True, [localisation, zoom])
+                    self.location_state = False
+                    self.location.start_tracking()
+            else:
+                if not(self.location_state):
+                    self.location.stop_tracking()
+                    self.location_box.remove(self.location_box.children[0:2])
+                    self.location_box.refresh()
+                    self.location_state = True
+                    self.location.start_tracking()
+            await asyncio.sleep(0.1)
+
+    async def update_pos_running(self, *args, **kwargs):
+        self.location.stop_tracking()
+        print("pos running")
+        location = kwargs.get("location", None)
+        altitude = kwargs.get("altitude", None)
+        self.position_pin.location = location
+        self.last_update = time.time()
+        self.location_box.map_view.refresh()
+        self.location.start_tracking()
 
     async def update_pos(self, *args, **kwargs):
             self.location.stop_tracking()
-            print("position mis à jour")
+            print("pos lambda")
             location = kwargs.get("location", None)
             altitude = kwargs.get("altitude", None)
             self.position_pin.location = location
@@ -457,7 +561,7 @@ class Globalorientation(App):
         self.edit_balise_button = Button(text="crayon", style=Pack(flex=2), on_press=self.edit_balises)
         self.running_box = Box(style=Pack(direction=ROW, flex=1))
         self.load_button = Button(text="load", style=Pack(flex=1), on_press=self.load_balises)
-        self.run_button = Button(text="run", style=Pack(flex=2))
+        self.run_button = Button(text="run", style=Pack(flex=2), on_press=self.run)
         self.save_button = Button(text="save", style=Pack(flex=1), on_press=self.save_balises)
         self.balise_box.add(self.add_balise_button, self.center_button, self.edit_balise_button)
         self.running_box.add(self.load_button, self.run_button, self.save_button)
