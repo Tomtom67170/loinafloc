@@ -18,6 +18,7 @@ from toga.app import App
 from toga.widgets.mapview import *
 from toga.dialogs import InfoDialog, ErrorDialog, QuestionDialog
 from toga.platform import current_platform
+from toga.widgets.optioncontainer import OptionContainer
 from android.content import Intent
 from java import jarray, jbyte
 from android.net import Uri
@@ -70,13 +71,14 @@ class Globalorientation(App):
         self.main_box = Box(style=Pack(direction=COLUMN))
         self.main_window.content = self.main_box
 
-    def reset_map_view(self):
+    def reset_map_view(self, show_pins=True):
         location = self.map_view.location
         zoom = self.map_view.zoom
         self.map_view = MapView(location=location, zoom=zoom, style=Pack(flex=1))
         self.map_view.pins.add(self.position_pin)
-        for i in range(len(self.balises)):
-            self.map_view.pins.add(MapPin(location=self.balises[i][0], title="Balise n°"+str(i+1), subtitle=self.balises[i][1]))
+        if show_pins:
+            for i in range(len(self.balises)):
+                self.map_view.pins.add(MapPin(location=self.balises[i][0], title="Balise n°"+str(i+1), subtitle=self.balises[i][1]))
 
     def startup(self):
         """Construct and show the Toga application.
@@ -202,6 +204,27 @@ class Globalorientation(App):
             self.location.on_change = self.update_pos
             self.location.start_tracking()
 
+    async def run(self, widgets):
+        self.location.stop_tracking()
+        if len(self.balises) == 0:
+            await self.main_window.dialog(InfoDialog("Course incomplète", "Vous devez ajouter au moins une balise à votre course d'orientation"))
+            return
+        response = await self.main_window.dialog(QuestionDialog("Prêt?", "Voulez-vous commencer la course d'orientation dés maintenant?"))
+        if not(response):
+            return
+        self.allow_position = await self.main_window.dialog(QuestionDialog("Afficher localisation", "Souhaitez-vous autoriser l'affichage de votre position durant la course? Si oui, vous pourrez l'afficher/masquer à n'importe quel moment de la course"))
+        self.main_box.clear()
+        self.reset_map_view(show_pins=False)
+
+        self.main_container = OptionContainer()
+        self.location_box = Box(style=Pack(direction=COLUMN))
+        progressbar_header = Box(style=Pack(direction=COLUMN, align_items=CENTER, text_align=CENTER))
+        progress_label = Label(style=Pack(font_size=10), text="Balise 0 sur "+str(len(self.balises)))
+        self.progressbar_status = ProgressBar(max=len(self.balises), value=0, style=Pack(margin=(0)))
+        progressbar_header.add(progress_label, self.progressbar_status)
+        self.main_box.add(progressbar_header, self.main_container)
+        
+
     async def update_pos(self, *args, **kwargs):
             self.location.stop_tracking()
             print("position mis à jour")
@@ -310,13 +333,14 @@ class Globalorientation(App):
 
     def move_balise(self, widgets:Button):
         if self.move_state:
-            self.move_state = False
-            selected_balise = self.balise_table.selection
-            del widgets.style.background_color
-            for i in range(len(self.balises)):
-                if (str(self.balises[i][0]) == selected_balise.coordonnées and self.balises[i][1] == selected_balise.nom_de_la_balise):
-                    self.balises[i], self.balises[self.selected_balise] = self.balises[self.selected_balise], self.balises[i]
-            self.edit_balises(widgtets=None)
+            # self.move_state = False
+            # selected_balise = self.balise_table.selection
+            # del widgets.style.background_color
+            # for i in range(len(self.balises)):
+            #     if (str(self.balises[i][0]) == selected_balise.coordonnées and self.balises[i][1] == selected_balise.nom_de_la_balise):
+            #         self.balises[i], self.balises[self.selected_balise] = self.balises[self.selected_balise], self.balises[i]
+            # self.edit_balises(widgtets=None)
+            pass
 
         else: #Aucune balise n'est seléctionné pour le moment
             self.selected_balise = self.balise_table.selection
