@@ -2,7 +2,7 @@
 Cette application vous permet de créer vos courses d'orientations sur une carte du monde
 """
 
-import toga, sys, asyncio, time, json
+import toga, sys, asyncio, time, json, math
 from toga import platform
 from toga.style import Pack
 from toga.style.pack import COLUMN, ROW, CENTER
@@ -117,6 +117,7 @@ class Globalorientation(App):
         self.start_time = time.time() + 1
         self.balises = []
         self.move_state = False
+        self.precision = 5 #Valeur arbitraire: La distance minimale requise avec la balise pour la valider
         progressbar.value = 10
         await asyncio.sleep(3)
         progressbar.value = 45
@@ -195,11 +196,29 @@ class Globalorientation(App):
                 self.main_box.add(error_text, loading, self.map_view, self.act_box)
                 await self.main()
 
-    async def main(self, start=True):
-        print("Initialisation check_pos")
+    async def start_check_pos(self):
+        # Annule une tâche existante si nécessaire
+        if hasattr(self, 'check_pos_task') and self.check_pos_task is not None:
+            if not self.check_pos_task.done():
+                print("Annulation de la tâche existante.")
+                self.check_pos_task.cancel()
+                try:
+                    await self.check_pos_task
+                    print("Tâche annulée proprement.")
+                except asyncio.CancelledError:
+                    print("Tâche interrompue proprement.")
+        
+        # Crée une nouvelle tâche
+        print("Tâche crée")
         self.check_pos_task = asyncio.create_task(self.check_pos())
+
+    async def main(self, start=True):
+        self.location.stop_tracking()
+        print("Initialisation check_pos")
+        await self.start_check_pos()
         print("main démarré")
         self.map_view.refresh()
+        self.location.start_tracking()
         if self.location.has_permission:
             self.location.on_change = self.update_pos
             self.location.start_tracking()
@@ -212,7 +231,7 @@ class Globalorientation(App):
                 self.balises = MapPin(balise[0], title="Prochaine balise", subtitle=balise[1])
                 self.map_view = MapView(location=self.balises.location, zoom=16, style=Pack(flex=1))
                 self.map_view.pins.add(self.balises)
-                act_box = Box(style=Pack(height=50, direction=ROW, margin_bottom=50))
+                act_box = Box(style=Pack(height=50, direction=ROW))
                 disable_pin = Button("pin", style=Pack(flex=1), on_press=self.change_pin_location_state)
                 self.focus_button = Button("c", style=Pack(flex=1), on_press=self.focus_location)
                 self.location_pin = location_pin
@@ -241,27 +260,40 @@ class Globalorientation(App):
                 self.map_view.location = self.location_pin.location
                 self.map_view.zoom = 16
 
+        class table_box(Box):
+            def __init__(self, id = None, style = None, children = None):
+                super().__init__(id, style, children)
+
         if len(self.balises) == 0:
             await self.main_window.dialog(InfoDialog("Course incomplète", "Vous devez ajouter au moins une balise à votre course d'orientation"))
             return
         response = await self.main_window.dialog(QuestionDialog("Prêt?", "Voulez-vous commencer la course d'orientation dés maintenant?"))
         if not(response):
             return
-        self.check_pos_task.cancel()
+        reponse = self.check_pos_task.cancel()
+        await self.main_window.dialog(InfoDialog("Debug", "Valeur de reponse: "+str(reponse)))
+        print("Fenêtre confirmée")
         self.location.stop_tracking()
         self.allow_position = await self.main_window.dialog(QuestionDialog("Afficher localisation", "Souhaitez-vous autoriser l'affichage de votre position durant la course? Si oui, vous pourrez l'afficher/masquer à n'importe quel moment de la course"))
+        self.running_start_time = time.time()
+        self.pause_running = 0.0
+        self.passed_balises = []
+        for balise in self.balises:
+            print(type(balise[0]))
+            self.passed_balises.append({"nom":balise[1], "coordonnées":balise[0], "temps":None})
         self.main_box.clear()
         self.main_container = OptionContainer(style=Pack(flex=1))
         self.location_box = location_box(style=Pack(direction=COLUMN, flex=1), location_pin=self.position_pin, balise=self.balises[0], pin_allowed=self.allow_position)
         self.main_container.content.append("Carte", self.location_box)
-        progressbar_header = Box(style=Pack(direction=COLUMN, align_items=CENTER, text_align=CENTER))
-        progress_label = Label(style=Pack(font_size=10), text="Balises réalisés: 0 sur "+str(len(self.balises)))
+        self.progressbar_header = Box(style=Pack(direction=COLUMN, align_items=CENTER, text_align=CENTER))
+        nom = self.get_balise()[1]["nom"]
+        self.progress_label = Label(style=Pack(font_size=10, text_align=CENTER), text="Balises réalisés: 0 sur "+str(len(self.balises))+" Prochaine balise: "+nom)
         self.progressbar_status = ProgressBar(max=len(self.balises), value=0, style=Pack(margin=(0)))
-        progressbar_header.add(progress_label, self.progressbar_status)
-        self.main_box.add(progressbar_header, self.main_container)
+        self.progressbar_header.add(self.progress_label, self.progressbar_status)
+        self.main_box.add(self.progressbar_header, self.main_container)
         self.location.on_change = self.update_pos_running
         self.location.start_tracking()
-        self.check_pos_task = asyncio.create_task(self.check_pos_running())
+        self.check_pos_running_task = asyncio.create_task(self.check_pos_running())
 
     async def check_pos_running(self):
 
@@ -302,22 +334,58 @@ class Globalorientation(App):
                 self.map_view.zoom = 16
         
         while True:
-            if time.time() - self.last_update >= 30:
-                if self.location_state: #devient obsolète
-                    self.location.stop_tracking()
-                    localisation = self.location_box.map_view.location
-                    zoom = self.location_box.map_view.zoom
-                    self.location_box = location_box(Pack(direction=COLUMN), self.position_pin, self.balises[0], self.allow_position, True, [localisation, zoom])
-                    self.location_state = False
-                    self.location.start_tracking()
-            else:
-                if not(self.location_state):
-                    self.location.stop_tracking()
-                    self.location_box.remove(self.location_box.children[0:2])
-                    self.location_box.refresh()
-                    self.location_state = True
-                    self.location.start_tracking()
-            await asyncio.sleep(0.1)
+            try:
+                print("check_pos_running")
+                if time.time() - self.last_update >= 30:
+                    print("localisation obsolète")
+                    if self.location_state: #devient obsolète
+                        print("Localisation DEVIENT obsolète")
+                        self.location.stop_tracking()
+                        localisation = self.location_box.map_view.location
+                        zoom = self.location_box.map_view.zoom
+                        self.location_box = location_box(Pack(direction=COLUMN), self.position_pin, self.balises[0], self.allow_position, True, [localisation, zoom])
+                        self.main_container.content
+                        self.location_state = False
+                        self.location.start_tracking()
+                else:
+                    print("Localisation ok")
+                    if not(self.location_state):
+                        print("Localisation DEVIENT ok")
+                        self.location.stop_tracking()
+                        for _ in range(2):
+                            print(self.location_box.children[0])
+                            self.location_box.remove(self.location_box.children[0])
+                        break
+                        self.location_box.refresh()
+                        self.location_state = True
+                        self.location.start_tracking()
+                await asyncio.sleep(0.1)
+                self.main_box.refresh()
+            except asyncio.CancelledError:
+                print("check_pos_running arrétê")
+            except Exception as E:
+                print("Erreur: "+str(E))
+
+    def get_balise(self, balises:list=None) -> tuple:
+        """
+        Permet de récupérer l'index ainsi que les données de la dernière balise non validée depuis une liste contenant les données de balise au format [{nom, coordonnées, temps}]
+
+        Entrée:
+        (Optionel) bakises (list): Par défault, la fonction s'exécute avec self.passed_balises, mais elle peut réaliser la recherche avec une liste dans l'arguments balises
+
+        Sortie:
+        tuple: output[0]: Index de la balise dans la liste analyzée
+        output[1]: Données de la balise dans a la liste analyzée (balises[i])
+
+        None est renvoyée si toutes les balises ont été validés
+        """
+        if balises == None:
+            for i in range(len(self.passed_balises)):
+                if self.passed_balises[i]["temps"] == None: return (i, self.passed_balises[i])
+        else:
+            for i in range(len(balises)):
+                if balises[i]["temps"] == None: return (i, balises[i])
+        return None
 
     async def update_pos_running(self, *args, **kwargs):
         self.location.stop_tracking()
@@ -325,9 +393,42 @@ class Globalorientation(App):
         location = kwargs.get("location", None)
         altitude = kwargs.get("altitude", None)
         self.position_pin.location = location
+        balise = self.get_balise()
+        distance = self.get_distance(location, balise[1]["coordonnées"])
+        if distance[0] <= self.precision:
+            self.passed_balises[balise[0]]["temps"] = time.time() - self.running_start_time
+            await self.main_window.dialog(InfoDialog("Balise atteinte", "Nous vous avons localisé à moins de 5 mètre de la prochaine balise, elle a donc été validée! Appuyer sur \"OK\" pour continuer..."))
+            if balise[0] + 1 != len(self.passed_balises):
+                nom = self.passed_balises[balise[0]+1]["nom"]
+                self.progress_label.text = "Balises réalisés: "+str(balise[0] + 1)+" sur "+str(len(self.balises))+" Prochaine balise: "+nom
+                self.progressbar_status.value += 1
+                self.progressbar_header.refresh()
         self.last_update = time.time()
         self.location_box.map_view.refresh()
         self.location.start_tracking()
+
+    def get_distance(self, a:tuple, b:tuple) -> tuple:
+        """
+        Retourne la distance entre 2 points en mètre et kilomètre, avec une marge d'erreur jusqu'à 0.5%
+        ATTENTION: Les calculs perdent drastiquement en précision au delà de 200km.
+
+        Input:
+        a (tuple): Coordonnées (X, Y) d'un premier point
+        b (tuple): Coordonnées (X, Y) d'un second point
+
+        Output:
+        Output[0]: La distance en mètres
+        Output[1]: La distance en kilomètres
+        """
+
+        avg_lat = math.radians((a[0] + b[0])/2)
+
+        delta_lat = (b[0] - a[0]) * 111_320  # mètres par degré latitude
+        delta_lon = (b[1] - a[1]) * 111_320 * math.cos(avg_lat)  # mètres par degré longitude
+
+        distance = math.sqrt(delta_lat**2 + delta_lon**2)
+
+        return (distance, distance/1000)
 
     async def update_pos(self, *args, **kwargs):
             self.location.stop_tracking()
@@ -348,26 +449,30 @@ class Globalorientation(App):
             self.location.start_tracking()
 
     async def check_pos(self):
-        while True:
-            if time.time() - self.last_update >= 30:
-                if self.location_state: #devient obsolète
-                    self.clear()
-                    self.reset_map_view()
-                    self.location.stop_tracking()
-                    error_text = Label(text="Aucun signal GPS", style=Pack(font_size=10, color="#ffffff", text_align="center", background_color="#ff0000"))
-                    loading = ProgressBar(style=Pack(flex=1), max=None, running=True)
-                    self.init_act()
-                    self.main_box.add(error_text, loading, self.map_view, self.act_box)
-                    self.location_state = False
-                    self.location.start_tracking()
-            else:
-                if not(self.location_state):
-                    self.clear()
-                    self.reset_map_view()
-                    self.init_act()
-                    self.main_box.add(self.map_view, self.act_box)
-                    self.location_state = True
-            await asyncio.sleep(0.1)
+        try:
+            while True:
+                print("check_pos_lambda")
+                if time.time() - self.last_update >= 30:
+                    if self.location_state: #devient obsolète
+                        self.clear()
+                        self.reset_map_view()
+                        self.location.stop_tracking()
+                        error_text = Label(text="Aucun signal GPS", style=Pack(font_size=10, color="#ffffff", text_align="center", background_color="#ff0000"))
+                        loading = ProgressBar(style=Pack(flex=1), max=None, running=True)
+                        self.init_act()
+                        self.main_box.add(error_text, loading, self.map_view, self.act_box)
+                        self.location_state = False
+                        self.location.start_tracking()
+                else:
+                    if not(self.location_state):
+                        self.clear()
+                        self.reset_map_view()
+                        self.init_act()
+                        self.main_box.add(self.map_view, self.act_box)
+                        self.location_state = True
+                await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            print("check_pos_lambda arreté")
 
     async def init_loc(self, *args, **kwargs):
         location = kwargs.get("location", None)
