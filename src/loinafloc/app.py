@@ -295,56 +295,45 @@ class Globalorientation(App):
         self.location.start_tracking()
         self.check_pos_running_task = asyncio.create_task(self.check_pos_running())
 
-    async def check_pos_running(self):
-
-        class location_box(Box):
-            def __init__(self, style, location_pin:MapPin, balise:MapPin, pin_allowed, lost, map_view_state:list, **kwargs):
-                super().__init__(style, **kwargs)
-                self.balises = balise
-                error_text = Label(text="Aucun signal GPS", style=Pack(font_size=10, color="#ffffff", text_align="center", background_color="#ff0000"))
-                loading = ProgressBar(style=Pack(flex=1), max=None, running=True)
-                self.map_view = MapView(location=map_view_state[0], zoom=map_view_state[1], style=Pack(flex=1))
-                self.map_view.pins.add(balise)
-                act_box = Box(style=Pack(height=50, direction=ROW))
-                disable_pin = Button("pin", style=Pack(flex=1), on_press=self.change_pin_location_state)
-                focus_button = Button("c", style=Pack(flex=1), on_press=self.focus_location)
-                self.location_pin = location_pin
-                if not(pin_allowed):
-                    disable_pin.enabled = False
-                    focus_button.enabled = False
-                    self.location_pin_state = False
-                else:
-                    self.map_view.pins.add(location_pin)
-                    self.location_pin_state = True
-                act_box.add(disable_pin, focus_button)
-                if lost:
-                    self.add(error_text, loading)
-                self.add(self.map_view, act_box)
-
-            def change_pin_location_state(self, widgets):
-                if self.location_pin_state:
-                    self.map_view.pins.remove(self.location_pin)
-                    self.location_pin_state = False
-                else:
-                    self.map_view.pins.add(self.location_pin)
-                    self.location_pin_state = True
-
-            def focus_location(self, widgets):
-                self.map_view.location = self.location_pin.location
-                self.map_view.zoom = 16
-        
+    async def check_pos_running(self):        
         while True:
             try:
                 print("check_pos_running")
                 if time.time() - self.last_update >= 30:
                     print("localisation obsolète")
                     if self.location_state: #devient obsolète
-                        print("Localisation DEVIENT obsolète")
                         self.location.stop_tracking()
+                        print("DEVIENT obsolète")
                         localisation = self.location_box.map_view.location
                         zoom = self.location_box.map_view.zoom
-                        self.location_box = location_box(Pack(direction=COLUMN), self.position_pin, self.balises[0], self.allow_position, True, [localisation, zoom])
-                        self.main_container.content
+                        self.location_box.clear()
+                        balise = self.get_balise()[1]
+                        self.location_box.balises = MapPin(location=balise["coordonnées"], title="Prochaine balise", subtitle=balise["nom"])
+                        print(self.location_box.balises)
+                        error_text = Label(text="Aucun signal GPS", style=Pack(font_size=10, color="#ffffff", text_align="center", background_color="#ff0000"))
+                        loading = ProgressBar(style=Pack(flex=1), max=None, running=True)
+                        self.location_box.map_view = None
+                        self.location_box.map_view = MapView(location=localisation, zoom=zoom, style=Pack(flex=1))
+                        print("texte défini")
+                        self.location_box.map_view.pins.add(self.location_box.balises)
+                        print("pins mis à jour")
+                        act_box = Box(style=Pack(height=50, direction=ROW))
+                        disable_pin = Button("pin", style=Pack(flex=1), on_press=self.location_box.change_pin_location_state)
+                        focus_button = Button("c", style=Pack(flex=1), on_press=self.location_box.focus_location)
+                        self.location_box.location_pin = self.position_pin
+                        print("Location pins mise à jour")
+                        if not(self.allow_position):
+                            disable_pin.enabled = False
+                            focus_button.enabled = False
+                            self.location_pin_state = False
+                        else:
+                            self.location_box.map_view.pins.add(self.position_pin)
+                            self.location_pin_state = True
+                        act_box.add(disable_pin, focus_button)
+                        print("act_box mise à jour")
+                        self.location_box.add(error_text, loading)
+                        self.location_box.add(self.location_box.map_view, act_box)
+                        print("location_box mis à jour")
                         self.location_state = False
                         self.location.start_tracking()
                 else:
@@ -355,11 +344,10 @@ class Globalorientation(App):
                         for _ in range(2):
                             print(self.location_box.children[0])
                             self.location_box.remove(self.location_box.children[0])
-                        break
                         self.location_box.refresh()
                         self.location_state = True
                         self.location.start_tracking()
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.2)
                 self.main_box.refresh()
             except asyncio.CancelledError:
                 print("check_pos_running arrétê")
